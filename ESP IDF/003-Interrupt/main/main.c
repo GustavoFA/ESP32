@@ -7,8 +7,28 @@ const gpio_num_t button = 5;
 
 volatile uint8_t number;
 
+const uint64_t debounce_time = 200; // Debounce time in milliseconds
+volatile uint64_t last_interrupt_time = 0;
+
+static QueueHandle_t button_queue;
+
 static void IRAM_ATTR button_isr (void *arg) {
 
+    uint64_t current_time = esp_timer_get_time(); // get time in microseconds
+
+    if (current_time - last_interrupt_time > debounce_time * 1000) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        /*
+            xQueueSendFromISR() will set *pxHigherPriorityTaskWoken to pdTRUE if sending to 
+            the queue caused a task to unblock, and the unblocked task has a priority higher 
+            than the currently running task.
+        */
+        xQueueSendFromISR(button_queue, arg, &xHigherPriorityTaskWoken); 
+        last_interrupt_time = current_time;
+        if (xHigherPriorityTaskWoken) {
+            portYIELD_FROM_ISR();
+        }
+    }
 }
 
 static void config_gpios () {
@@ -26,9 +46,32 @@ static void config_gpios () {
 
     // Add ISR handler
     gpio_isr_handler_add(button, button_isr, (void*) number);
+
+    // Create a queue to handle button events
+    button_queue = xQueueCreate(10, sizeof(uint8_t));
 }
 
-void app_main(void)
-{
+static void config_timer () {
+
+    timer_config_t timer_conf = {
+        .alarm_en = TIEMR_ALARM_EN,
+        .counter_en = TIMER_PAUSE,
+        .intr_type = ,
+        .counter_dir = TIMER_COUNT_UP,
+        .auto_reload = TIMER_AUTORELOAD_EN,
+        .divider = 
+    };
+
+}
+
+void app_main(void) {
+
+    config_gpios();
+
+    while (1) {
+        if (xQueueReceive(button_queue, &number, portMAX_DELAY)) {
+            printf("Button pressed!\nYou got the number %d\n", number);
+        }
+    }
 
 }
